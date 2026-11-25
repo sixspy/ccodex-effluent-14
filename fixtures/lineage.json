@@ -12,5 +12,13 @@
     "edge_type": "准排锚点",
     "detail": "西湾主渠准排留痕",
     "created_at": "2026-11-15T14:25:00"
+  },
+  {
+    "from_sample": "SM-N14a",
+    "to_sample": "SM-N14b",
+    "edge_type": "二次升代",
+    "detail": "排污卯14槽二次采样升代（甲路径封死）：SM-N14a 作废 → SM-N14b 唯一新代正式",
+    "is_current": true,
+    "created_at": "2026-11-25T08:45:00"
   }
 ]

@@ -36,13 +36,43 @@ def reconcile_one(permit_code: str, authorization: AuthHeader = None):
         return _reconcile_permit(conn, permit_code)
 
 
+FORMAL_EFFECTIVE_STATUSES = ("已裁定", "已准排", "已封批")
+
+
+def _sample_flags(row) -> dict:
+    """effluent-14：判定一行是否计入对账、是否具正式世代效力。"""
+    keys = row.keys()
+    status = row["status"]
+    gen_state = row["gen_state"] if "gen_state" in keys else "正式"
+    voided = status == "作废" or gen_state == "作废"
+    shadow = status == "影子" or gen_state == "影子"
+    counted = not (voided or shadow)
+    formal_effective = counted and status in FORMAL_EFFECTIVE_STATUSES
+    if voided:
+        note = "旧代已作废，对账不计"
+    elif shadow:
+        note = "影子新代未升正，对账不得双计"
+    elif not counted:
+        note = "非在账批次"
+    else:
+        note = "计入"
+    return {
+        "voided": voided,
+        "shadow": shadow,
+        "counted": counted,
+        "formal_effective": formal_effective,
+        "count_note": note,
+    }
+
+
 def _reconcile_permit(conn, permit_code: str) -> dict:
     permit = conn.execute(
         "SELECT * FROM discharge_permits WHERE permit_code=?", (permit_code,)
     ).fetchone()
     samples = conn.execute(
-        """SELECT sample_code, flow_m3h, metrics, status, generation FROM sample_batches
-           WHERE permit_ref=? AND status NOT IN ('作废')""",
+        """SELECT s.*, o.outfall_code FROM sample_batches s
+           LEFT JOIN outfalls o ON o.id=s.outfall_id
+           WHERE s.permit_ref=? ORDER BY s.id""",
         (permit_code,),
     ).fetchall()
     if not samples:
@@ -51,6 +81,12 @@ def _reconcile_permit(conn, permit_code: str) -> dict:
             "balanced": False,
             "reason": "无采样批次",
             "samples": [],
+            "double_count": False,
+            "double_counted": False,
+            "dual_formal": False,
+            "double_count_lit": False,
+            "lamp_state": "灭",
+            "double_count_lamp": "双计灯灭",
         }
     caps = {
         "cod": permit["cod_cap"],
@@ -59,36 +95,85 @@ def _reconcile_permit(conn, permit_code: str) -> dict:
     }
     details = []
     all_ok = True
+    formal_by_outfall: dict = {}
+    shadow_quarantined = 0
+    voided_count = 0
     for s in samples:
         metrics = json.loads(s["metrics"] or "{}")
-        ok = validate_permit_match(
-            caps, metrics, float(s["flow_m3h"]), float(permit["quota_m3d"])
-        )
-        if not ok:
-            all_ok = False
+        flags = _sample_flags(s)
+        if flags["shadow"]:
+            shadow_quarantined += 1
+        if flags["voided"]:
+            voided_count += 1
+        if flags["formal_effective"]:
+            formal_by_outfall.setdefault(s["outfall_id"], []).append(s["sample_code"])
+        if flags["counted"]:
+            ok = validate_permit_match(
+                caps, metrics, float(s["flow_m3h"]), float(permit["quota_m3d"])
+            )
+            if not ok:
+                all_ok = False
+        else:
+            ok = None  # 不计账批次不参与齐账判定
         details.append(
             {
                 "sample_code": s["sample_code"],
+                "outfall_id": s["outfall_id"],
+                "outfall_code": s["outfall_code"] if "outfall_code" in s.keys() else None,
                 "status": s["status"],
                 "generation": s["generation"],
                 "metrics": metrics,
                 "flow_m3h": s["flow_m3h"],
                 "matched": ok,
+                **flags,
             }
         )
+
+    # 同口双正式：同一排放口存在 >1 个正式效力世代 -> 双计灯亮
+    dual_outfalls = {
+        oid: codes for oid, codes in formal_by_outfall.items() if len(codes) > 1
+    }
+    dual_formal = bool(dual_outfalls)
+    double_count = dual_formal
+    lamp_state = "亮" if double_count else "灭"
+
     seal_rows = conn.execute(
-        """SELECT d.seal_ref, d.sample_generation, s.sample_code
+        """SELECT d.seal_ref, d.sample_generation, s.sample_code, s.status sample_status
            FROM discharge_seals d JOIN sample_batches s ON s.id=d.sample_id
            WHERE s.permit_ref=?""",
         (permit_code,),
     ).fetchall()
+    valid_seal_rows = [
+        x for x in seal_rows
+        if x["sample_status"] != "作废" and x["sample_status"] != "影子"
+    ]
     return {
         "permit_code": permit_code,
         "quota_m3d": permit["quota_m3d"],
         "caps": caps,
+        # 齐账仍只表达指标对许可的匹配；双计由独立 double_count_lamp 表达，避免改旧契约
         "balanced": all_ok,
         "proof_ready": all_ok and len(seal_rows) >= 1,
         "seal_count": len(seal_rows),
+        "valid_seal_count": len(valid_seal_rows),
+        # —— effluent-14 双计灯 ——
+        "double_count": double_count,
+        "double_counted": double_count,
+        "dual_formal": dual_formal,
+        "dual_formal_count": len(dual_outfalls),
+        "double_count_lit": double_count,
+        "lamp": "red" if double_count else "green",
+        "lamp_state": lamp_state,
+        "double_count_lamp": "双计灯亮" if double_count else "双计灯灭",
+        "dual_formal_outfalls": [
+            {"outfall_id": oid, "sample_codes": codes}
+            for oid, codes in dual_outfalls.items()
+        ],
+        "shadow_quarantined": shadow_quarantined,
+        "voided_count": voided_count,
+        "counted_sample_codes": [
+            d["sample_code"] for d in details if d["counted"]
+        ],
         "samples": details,
         "seals": [dict(x) for x in seal_rows],
     }

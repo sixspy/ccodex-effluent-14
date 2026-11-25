@@ -36,6 +36,48 @@ class SampleIn(BaseModel):
     sample_code: str | None = None
 
 
+class ResampleIn(BaseModel):
+    """effluent-14 同口二次采样升代入参（甲路径）。
+
+    全部业务字段可空：按旧代继承；偏航字段（乙/影子/折中）显式接住后拒写。
+    """
+
+    outfall_id: int | None = None
+    outfall_code: str | None = None
+    sample_id: int | None = None
+    permit_ref: str | None = None
+    metrics: MetricsIn | None = None
+    flow_m3h: float | None = Field(default=None, gt=0, lt=50000)
+    sample_code: str | None = None
+    new_sample_code: str | None = None
+    note: str | None = None
+    session_id: str | None = None
+    request_id: str | None = None
+    # —— 以下为偏航口径探针：出现乙/影子/折中即记"二次升代偏航"并拒写 ——
+    strategy: str | None = None
+    mode: str | None = None
+    path: str | None = None
+    path_mode: str | None = None
+    shadow: bool | None = None
+    as_shadow: bool | None = None
+    promote_later: bool | None = None
+    hybrid: bool | None = None
+
+
+class DeviationNoteIn(BaseModel):
+    note: str = ""
+    proposed_path: str | None = None
+
+
+class RemediateDualFormalIn(BaseModel):
+    """effluent-14 存量同口双正式事故的核销入参。"""
+
+    outfall_id: int | None = None
+    keep_sample_id: int | None = None
+    keep_sample_code: str | None = None
+    note: str | None = None
+
+
 class ExceedOpenIn(BaseModel):
     sample_id: int
     note: str = ""

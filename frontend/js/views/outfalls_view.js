@@ -1,17 +1,42 @@
 export const outfallsViewTemplate = `
   <div class="grid-2">
     <div class="panel">
-      <h3>排放口限值</h3>
+      <h3>排放口限值 · 点行核同口世代</h3>
       <table>
         <thead><tr><th>编码</th><th>厂</th><th>河段</th><th>COD</th><th>氨氮</th><th>总磷</th><th>状态</th></tr></thead>
         <tbody>
-          <tr v-for="o in outfalls" :key="o.id">
+          <tr v-for="o in outfalls" :key="o.id" @click="loadOutfall(o.id)" style="cursor:pointer">
             <td>{{ o.outfall_code }}</td><td>{{ o.plant_code }}</td><td>{{ o.river_reach }}</td>
             <td>{{ o.cod_limit }}</td><td>{{ o.nh3n_limit }}</td><td>{{ o.tp_limit }}</td>
             <td :class="statusClass(o.status)">{{ o.status }}</td>
           </tr>
         </tbody>
       </table>
+      <div v-if="outfallDetail" class="panel" style="margin-top:0.8rem;border-style:dashed">
+        <h3>{{ outfallDetail.outfall.outfall_code }} · 同口只展示新代（当世代）</h3>
+        <table>
+          <thead><tr><th>编号</th><th>代</th><th>状态</th><th>流量</th><th>时间</th></tr></thead>
+          <tbody>
+            <tr v-for="s in outfallDetail.current_samples" :key="'c-'+s.sample_code">
+              <td><b>{{ s.sample_code }}</b></td><td>G{{ s.generation }}</td>
+              <td :class="sampleClass(s.status)">{{ s.status }}</td>
+              <td>{{ s.flow_m3h }}</td><td>{{ s.created_at }}</td>
+            </tr>
+            <tr v-if="!outfallDetail.current_samples.length"><td colspan="5" class="muted">无当世代正式批次</td></tr>
+          </tbody>
+        </table>
+        <details style="margin-top:0.5rem">
+          <summary class="hint">历史全部批次（含已作废旧代，默认不上主表）</summary>
+          <table>
+            <tbody>
+              <tr v-for="s in outfallDetail.recent_samples" :key="'r-'+s.sample_code" :class="{'row-void': s.status==='作废'}">
+                <td>{{ s.sample_code }}</td><td>G{{ s.generation }}</td><td>{{ s.status }}</td>
+                <td v-if="s.void_reason" class="hint">{{ s.void_reason }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </details>
+      </div>
     </div>
     <div class="panel">
       <h3>新建排放口</h3>

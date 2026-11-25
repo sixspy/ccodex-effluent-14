@@ -38,6 +38,26 @@ def create_seal(body: SealIn, authorization: AuthHeader = None):
             ).fetchone()
             if not sample:
                 raise HTTPException(404, "采样批次不存在")
+            gen_state = (
+                sample["gen_state"] if "gen_state" in sample.keys() else "正式"
+            )
+            # effluent-14 二次升代互斥：已废旧批/影子新代一律不得封批升代
+            if sample["status"] == "作废" or gen_state == "作废":
+                write_audit(
+                    conn, user, "seal_reject_void", sample["sample_code"],
+                    {"sample_id": body.sample_id, "reason": "已废旧批禁止升代封批"},
+                )
+                conn.commit()
+                raise HTTPException(
+                    409,
+                    "已废旧批禁止升代封批：该代已在二次采样甲路径中作废，"
+                    "请对当前新代操作",
+                )
+            if sample["status"] == "影子" or gen_state == "影子":
+                raise HTTPException(
+                    409,
+                    "影子新代未升正，禁止封批升代（effluent-14 甲路径不设影子升正）",
+                )
             validate_sample_sealable(sample["status"])
             open_hold = conn.execute(
                 "SELECT id FROM exceed_holds WHERE sample_id=? AND status='开放'",

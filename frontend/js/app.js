@@ -67,6 +67,16 @@ createApp({
     const labForm = ref({ sample_code: "SM-OF-E1-A-001", courier_slot: "A1" });
     const sludgeForm = ref({ plant_id: 1, digester_bay: "D-01" });
 
+    // effluent-14 二次升代互斥（甲路径，2026-11-25 封死）
+    const regenDecision = ref(null);
+    const regenRuns = ref([]);
+    const lineageCurrentOnly = ref(true);
+    const outfallDetail = ref(null);
+    const regenForm = ref({
+      outfall_id: 6, permit_ref: "DP-2026-N14", new_sample_code: "",
+      cod: 37.5, nh3n: 2.1, tp: 0.19, flow_m3h: 2150, session_id: "web-console",
+    });
+
     function logout() {
       token.value = "";
       user.value = "";
@@ -78,8 +88,19 @@ createApp({
     const releasableSamples = computed(() =>
       samples.value.filter((s) => s.status === "已裁定")
     );
+    const isVoidSample = (s) => !!s && (s.status === "作废" || s.gen_state === "作废");
+    const isShadowSample = (s) => !!s && (s.status === "影子" || s.gen_state === "影子");
     const sealableSamples = computed(() =>
-      samples.value.filter((s) => ["已裁定", "已准排"].includes(s.status))
+      samples.value.filter((s) =>
+        ["已裁定", "已准排"].includes(s.status) &&
+        !isVoidSample(s) && !isShadowSample(s))
+    );
+    // effluent-14：已废旧批/影子代明确列入"禁止升代封批"
+    const forbiddenSealSamples = computed(() =>
+      samples.value.filter((s) => isVoidSample(s) || isShadowSample(s))
+    );
+    const dualFormalPermits = computed(() =>
+      reconAllItems.value.filter((r) => r.double_count)
     );
 
     function statusClass(s) {
@@ -103,8 +124,8 @@ createApp({
       actionErr.value = "";
       actionOk.value = "";
       try {
-        await fn();
-        actionOk.value = "已完成";
+        const msg = await fn();
+        actionOk.value = (typeof msg === "string" && msg) ? msg : "已完成";
         await refresh();
       } catch (e) {
         actionErr.value = e.message || String(e);
@@ -135,7 +156,16 @@ createApp({
       releases.value = (await api.releases()).items;
       seals.value = (await api.seals()).items;
       permits.value = (await api.permits()).items;
-      lineageEdges.value = (await api.lineage()).items;
+      lineageEdges.value = lineageCurrentOnly.value
+        ? (await api.lineageCurrent()).items
+        : (await api.lineage()).items;
+      try {
+        regenDecision.value = await api.regenDecision();
+        regenRuns.value = (await api.regenRuns()).items;
+      } catch { /* 旧后端无升代口时不阻塞其余页面 */ }
+      try {
+        reconAllItems.value = (await api.reconcile()).items;
+      } catch { /* 对账加载失败不阻塞其余页面 */ }
       labJobs.value = (await api.labJobs()).items;
       sludgeJobs.value = (await api.sludgeJobs()).items;
       if (!releaseForm.value.sample_id && releasableSamples.value.length) {
@@ -163,7 +193,52 @@ createApp({
         },
       }));
     }
+    async function remediateDual() {
+      if (!reconOne.value || !reconOne.value.double_count) return;
+      const first = (reconOne.value.samples || [])[0] || {};
+      await flash(async () => {
+        const res = await api.remediateDualFormal({ outfall_id: first.outfall_id });
+        await loadReconcileOne();
+        return `双正式已核销：保留 ${res.kept_sample_code}，补作废 ${(res.voided_old || []).map(x => x.sample_code).join("、")}，双计灯灭`;
+      });
+    }
     async function closeExceed(id) { await flash(() => api.closeExceed({ hold_id: id, note: "页面闭环" })); }
+    async function loadOutfall(id) { outfallDetail.value = await api.outfall(id); }
+    async function reloadLineage() {
+      lineageEdges.value = lineageCurrentOnly.value
+        ? (await api.lineageCurrent()).items
+        : (await api.lineage()).items;
+    }
+    async function toggleLineageCurrent() {
+      lineageCurrentOnly.value = !lineageCurrentOnly.value;
+      await flash(reloadLineage);
+    }
+    async function createRegen() {
+      const f = regenForm.value;
+      await flash(async () => {
+        const res = await api.resample({
+          outfall_id: Number(f.outfall_id),
+          permit_ref: f.permit_ref || null,
+          new_sample_code: f.new_sample_code || null,
+          session_id: f.session_id || "web-console",
+          flow_m3h: Number(f.flow_m3h),
+          metrics: { cod: Number(f.cod), nh3n: Number(f.nh3n), tp: Number(f.tp) },
+        });
+        regenForm.value.new_sample_code = "";
+        return `二次升代完成：${res.sample_code} 第${res.generation}代正式；旧批已同事务作废 ${(res.voided_old || []).map(x => x.sample_code).join("、")}`;
+      });
+    }
+    async function regenFromRow(s) {
+      await flash(async () => {
+        const res = await api.resample({
+          sample_id: s.id,
+          outfall_id: s.outfall_id,
+          permit_ref: s.permit_ref,
+          session_id: "web-row-" + (user.value || "u"),
+        });
+        return `同口再采升代：新代 ${res.sample_code}（G${res.generation}）正式，旧代 ${(res.voided_old || []).map(x => x.sample_code).join("、")} 已作废`;
+      });
+    }
     async function createRelease() { await flash(() => api.createRelease(releaseForm.value)); }
     async function createSeal() {
       await flash(() => api.createSeal({
@@ -223,10 +298,15 @@ createApp({
       reconOne, reconAllItems, proofOne, reconCode, proofCode,
       plantForm, outfallForm, sampleForm, releaseForm, sealForm, permitForm,
       lineageForm, labForm, sludgeForm, releasableSamples, sealableSamples,
+      forbiddenSealSamples, dualFormalPermits,
+      regenDecision, regenRuns, lineageCurrentOnly, outfallDetail, regenForm,
+      isVoidSample, isShadowSample,
       login, logout, refresh, statusClass, sampleClass, fmtMetrics,
       loadPlant, loadSample, createPlant, createOutfall, createSample,
       closeExceed, createRelease, createSeal, createPermit, createLineage,
       loadReconcile, loadReconcileOne, loadProof, enqueueLab, enqueueSludge,
+      loadOutfall, createRegen, regenFromRow, toggleLineageCurrent, reloadLineage,
+      remediateDual,
     };
   },
   template: `

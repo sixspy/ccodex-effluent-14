@@ -40,11 +40,29 @@ def get_outfall(outfall_id: int, authorization: AuthHeader = None):
         if not row:
             raise HTTPException(404, "排放口不存在")
         recent = conn.execute(
-            """SELECT sample_code, status, flow_m3h, created_at FROM sample_batches
+            """SELECT sample_code, status, flow_m3h, generation, gen_state,
+                      voided_at, void_reason, superseded_by, created_at
+               FROM sample_batches
                WHERE outfall_id=? ORDER BY id DESC LIMIT 10""",
             (outfall_id,),
         ).fetchall()
-        return {"outfall": dict(row), "recent_samples": [dict(s) for s in recent]}
+        # effluent-14：同口只展示新代（当前具正式效力世代）
+        current = conn.execute(
+            """SELECT sample_code, status, flow_m3h, generation, gen_state,
+                      voided_at, void_reason, created_at
+               FROM sample_batches
+               WHERE outfall_id=? AND status<>'作废'
+                 AND COALESCE(gen_state,'正式')<>'影子'
+                 AND status IN ('已裁定','已准排','已封批')
+               ORDER BY generation DESC, id DESC""",
+            (outfall_id,),
+        ).fetchall()
+        return {
+            "outfall": dict(row),
+            "recent_samples": [dict(s) for s in recent],
+            "current_samples": [dict(s) for s in current],
+            "new_generation_sample": dict(current[0]) if current else None,
+        }
 
 
 @router.post("/api/outfalls")

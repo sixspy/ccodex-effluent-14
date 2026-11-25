@@ -73,5 +73,40 @@
     "status": "已裁定",
     "adjudicated_at": "2026-11-19T16:00:00",
     "created_at": "2026-11-19T15:30:00"
+  },
+  {
+    "sample_code": "SM-N14a",
+    "outfall_code": "OF-N14-A",
+    "permit_ref": "DP-2026-N14",
+    "metrics": {
+      "cod": 41.0,
+      "nh3n": 2.6,
+      "tp": 0.24
+    },
+    "flow_m3h": 2100,
+    "generation": 1,
+    "status": "作废",
+    "gen_state": "正式",
+    "voided_at": "2026-11-25T08:45:00",
+    "void_reason": "effluent-14 二次升代（甲路径，2026-11-25 封死）：同口再采 SM-N14b 升第 2 代正式，旧代同事务作废，禁止同口双正式",
+    "superseded_by_code": "SM-N14b",
+    "adjudicated_at": "2026-11-24T10:00:00",
+    "created_at": "2026-11-24T09:30:00"
+  },
+  {
+    "sample_code": "SM-N14b",
+    "outfall_code": "OF-N14-A",
+    "permit_ref": "DP-2026-N14",
+    "metrics": {
+      "cod": 37.5,
+      "nh3n": 2.1,
+      "tp": 0.19
+    },
+    "flow_m3h": 2150,
+    "generation": 2,
+    "status": "已裁定",
+    "gen_state": "正式",
+    "adjudicated_at": "2026-11-25T08:45:00",
+    "created_at": "2026-11-25T08:10:00"
   }
 ]

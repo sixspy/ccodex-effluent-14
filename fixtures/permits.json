@@ -31,5 +31,16 @@
     "period_label": "2026Q4",
     "status": "有效",
     "created_at": "2026-11-01T10:10:00"
+  },
+  {
+    "permit_code": "DP-2026-N14",
+    "plant_code": "PL-N14",
+    "quota_m3d": 55000,
+    "cod_cap": 50,
+    "nh3n_cap": 5,
+    "tp_cap": 0.5,
+    "period_label": "2026Q4",
+    "status": "有效",
+    "created_at": "2026-11-01T10:00:00"
   }
 ]

@@ -30,5 +30,13 @@
     "design_cap_m3d": 35000,
     "status": "检修",
     "created_at": "2026-11-01T08:15:00"
+  },
+  {
+    "plant_code": "PL-N14",
+    "name": "第十四排污卯校核厂",
+    "basin": "排污卯14槽流域",
+    "design_cap_m3d": 60000,
+    "status": "运行",
+    "created_at": "2026-11-01T08:00:00"
   }
 ]

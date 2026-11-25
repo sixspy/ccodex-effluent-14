@@ -1,0 +1,94 @@
+{
+  "case": "effluent-14",
+  "slot": "排污卯第14槽",
+  "name": "同口双正式并存事故夹具",
+  "incident": "二次采样时旧批 SM-N14a 未作废，新批 SM-N14b 已正式入库，同一排放口两笔正式世代并存，血缘分叉、对账双计。",
+  "correctness_gate": "同口再采升代与旧批作废不得混用：甲=同事务废旧批+升新代正式否则整笔回退；乙=只落影子新代旧批零改，升正时原子切换否则影子作废。拍板其一记入说明当日封死，折中禁止。",
+  "plant": {
+    "plant_code": "PL-N14",
+    "name": "第十四排污卯校核厂",
+    "basin": "排污卯14槽流域",
+    "design_cap_m3d": 60000,
+    "status": "运行",
+    "created_at": "2026-11-01T08:00:00"
+  },
+  "outfall": {
+    "outfall_code": "OF-N14-A",
+    "river_reach": "排污卯第14槽",
+    "cod_limit": 50.0,
+    "nh3n_limit": 5.0,
+    "tp_limit": 0.5,
+    "status": "开放",
+    "created_at": "2026-11-01T09:00:00"
+  },
+  "permit": {
+    "permit_code": "DP-2026-N14",
+    "quota_m3d": 55000,
+    "cod_cap": 50.0,
+    "nh3n_cap": 5.0,
+    "tp_cap": 0.5,
+    "period_label": "2026Q4",
+    "status": "有效",
+    "created_at": "2026-11-01T10:00:00"
+  },
+  "dual_formal": [
+    {
+      "sample_code": "SM-N14a",
+      "generation": 1,
+      "status": "已封批",
+      "metrics": {"cod": 41.0, "nh3n": 2.6, "tp": 0.24},
+      "flow_m3h": 2100.0,
+      "adjudicated_at": "2026-11-24T10:00:00",
+      "created_at": "2026-11-24T09:30:00",
+      "note": "旧代：事故中未作废"
+    },
+    {
+      "sample_code": "SM-N14b",
+      "generation": 2,
+      "status": "已裁定",
+      "metrics": {"cod": 38.0, "nh3n": 2.2, "tp": 0.20},
+      "flow_m3h": 2200.0,
+      "adjudicated_at": "2026-11-25T08:40:00",
+      "created_at": "2026-11-25T08:10:00",
+      "note": "新代：事故中已正式入库，与 SM-N14a 双正式并存"
+    }
+  ],
+  "precursor": [
+    {
+      "sample_code": "SM-N14a",
+      "generation": 1,
+      "status": "已裁定",
+      "metrics": {"cod": 41.0, "nh3n": 2.6, "tp": 0.24},
+      "flow_m3h": 2100.0,
+      "adjudicated_at": "2026-11-24T10:00:00",
+      "created_at": "2026-11-24T09:30:00",
+      "note": "甲路径二次采样前的唯一正式旧代"
+    }
+  ],
+  "shadow_pair": [
+    {
+      "sample_code": "SM-N14a",
+      "generation": 1,
+      "status": "已封批",
+      "metrics": {"cod": 41.0, "nh3n": 2.6, "tp": 0.24},
+      "flow_m3h": 2100.0,
+      "adjudicated_at": "2026-11-24T10:00:00",
+      "created_at": "2026-11-24T09:30:00"
+    },
+    {
+      "sample_code": "SM-N14s",
+      "generation": 2,
+      "status": "影子",
+      "metrics": {"cod": 30.0, "nh3n": 2.0, "tp": 0.18},
+      "flow_m3h": 2050.0,
+      "adjudicated_at": null,
+      "created_at": "2026-11-25T08:10:00",
+      "note": "乙口径影子新代：未升正，对账不得双计"
+    }
+  ],
+  "resample_request": {
+    "new_sample_code": "SM-N14b",
+    "metrics": {"cod": 37.5, "nh3n": 2.1, "tp": 0.19},
+    "flow_m3h": 2150.0
+  }
+}

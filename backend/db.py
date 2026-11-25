@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
-DB_PATH = DATA / "app.db"
+# EFFLUENT_DB 可指向隔离库（并发/端到端验证用）；缺省仍为 data/app.db
+DB_PATH = Path(os.environ.get("EFFLUENT_DB", str(DATA / "app.db")))
 FIXTURES = ROOT / "fixtures"
 FRONTEND = ROOT / "frontend"
 
@@ -100,9 +102,14 @@ CREATE TABLE IF NOT EXISTS sample_batches(
   flow_m3h REAL NOT NULL,
   generation INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL,
+  gen_state TEXT NOT NULL DEFAULT '正式',
+  voided_at TEXT,
+  void_reason TEXT,
+  superseded_by INTEGER,
   adjudicated_at TEXT,
   created_at TEXT NOT NULL,
-  FOREIGN KEY(outfall_id) REFERENCES outfalls(id)
+  FOREIGN KEY(outfall_id) REFERENCES outfalls(id),
+  FOREIGN KEY(superseded_by) REFERENCES sample_batches(id)
 );
 CREATE TABLE IF NOT EXISTS exceed_holds(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,8 +151,33 @@ CREATE TABLE IF NOT EXISTS metric_lineage(
   to_sample_id INTEGER,
   edge_type TEXT NOT NULL,
   detail TEXT NOT NULL,
+  is_current INTEGER NOT NULL DEFAULT 1,
+  superseded_at TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY(from_sample_id) REFERENCES sample_batches(id)
+);
+CREATE TABLE IF NOT EXISTS regen_runs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  outfall_id INTEGER NOT NULL,
+  path_code TEXT NOT NULL,
+  lock_key TEXT NOT NULL,
+  old_sample_ids TEXT NOT NULL,
+  new_sample_id INTEGER NOT NULL,
+  new_sample_code TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  session_id TEXT,
+  detail TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(outfall_id) REFERENCES outfalls(id)
+);
+CREATE TABLE IF NOT EXISTS regen_deviation_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor TEXT,
+  target TEXT,
+  proposed TEXT NOT NULL,
+  payload TEXT,
+  reason TEXT,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS effluent_locks(
   lock_key TEXT PRIMARY KEY,
@@ -314,8 +346,9 @@ def seed_samples(conn: sqlite3.Connection) -> None:
             continue
         conn.execute(
             """INSERT INTO sample_batches(sample_code,outfall_id,permit_ref,metrics,flow_m3h,
-               generation,status,adjudicated_at,created_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+               generation,status,gen_state,voided_at,void_reason,
+               adjudicated_at,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 row["sample_code"],
                 outfall,
@@ -324,10 +357,29 @@ def seed_samples(conn: sqlite3.Connection) -> None:
                 float(row["flow_m3h"]),
                 int(row.get("generation", 1)),
                 row.get("status", "已裁定"),
+                row.get("gen_state", "正式"),
+                row.get("voided_at"),
+                row.get("void_reason"),
                 row.get("adjudicated_at"),
                 row.get("created_at", now_iso()),
             ),
         )
+    # superseded_by_code -> superseded_by 自引用回填（effluent-14 废旧升新链）
+    for row in _load_json("samples.json"):
+        target_code = row.get("superseded_by_code")
+        if not target_code:
+            continue
+        old = conn.execute(
+            "SELECT id FROM sample_batches WHERE sample_code=?", (row["sample_code"],)
+        ).fetchone()
+        new = conn.execute(
+            "SELECT id FROM sample_batches WHERE sample_code=?", (target_code,)
+        ).fetchone()
+        if old and new:
+            conn.execute(
+                "UPDATE sample_batches SET superseded_by=? WHERE id=?",
+                (new["id"], old["id"]),
+            )
 
 
 def seed_exceeds(conn: sqlite3.Connection) -> None:
@@ -430,21 +482,47 @@ def seed_lineage(conn: sqlite3.Connection) -> None:
         ).fetchone():
             continue
         conn.execute(
-            """INSERT INTO metric_lineage(from_sample_id,to_sample_id,edge_type,detail,created_at)
-               VALUES (?,?,?,?,?)""",
+            """INSERT INTO metric_lineage(from_sample_id,to_sample_id,edge_type,detail,
+                   is_current,created_at)
+               VALUES (?,?,?,?,?,?)""",
             (
                 fr["id"],
                 to_id,
                 row["edge_type"],
                 row["detail"],
+                1 if row.get("is_current", True) else 0,
                 row.get("created_at", now_iso()),
             ),
         )
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """对已存在的旧库补 effluent-14 二次升代互斥所需列。"""
+    wanted = {
+        "sample_batches": {
+            "gen_state": "TEXT NOT NULL DEFAULT '正式'",
+            "voided_at": "TEXT",
+            "void_reason": "TEXT",
+            "superseded_by": "INTEGER",
+        },
+        "metric_lineage": {
+            "is_current": "INTEGER NOT NULL DEFAULT 1",
+            "superseded_at": "TEXT",
+        },
+    }
+    for table, cols in wanted.items():
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not existing:
+            continue  # 新库由 SCHEMA 建表，列已齐
+        for name, ddl in cols.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         seed_users(conn)
         seed_plants(conn)
         seed_outfalls(conn)
